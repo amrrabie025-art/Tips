@@ -1,0 +1,153 @@
+name: Build and Deploy API
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Verify Node environment
+        run: |
+          node --version
+          npm --version
+          NODE_MAJOR=$(node -v | cut -d'.' -f1 | tr -d 'v')
+          if [ -z "$NODE_MAJOR" ] || [ "$NODE_MAJOR" -lt 20 ]; then
+            echo "Error: Node.js version must be 20 or newer, detected: $(node -v)"
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            npm install
+          fi
+
+      - name: Build API
+        run: |
+          npm run build
+          if [ -d "dist" ] && [ -n "$(ls -A dist)" ]; then
+            zip -r api-release.zip dist
+          else
+            zip -r api-release.zip . -x "*.git*" -x "*.github*" -x "node_modules/*"
+          fi
+
+      - name: Verify API build
+        run: |
+          if [ ! -f "api-release.zip" ]; then
+            echo "Error: Expected build output api-release.zip is missing"
+            exit 1
+          fi
+          if [ ! -s "api-release.zip" ]; then
+            echo "Error: Build output api-release.zip is empty"
+            exit 1
+          fi
+          echo "Verified API build artifact:"
+          ls -lh api-release.zip
+
+      - name: Upload API build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-build
+          path: api-release.zip
+          if-no-files-found: error
+
+      - name: Prepare API release asset
+        id: prepare_asset
+        run: |
+          TMP_DIR=$(mktemp -d)
+          cp api-release.zip "${TMP_DIR}/api-release.zip"
+          echo "asset_path=${TMP_DIR}/api-release.zip" >> "$GITHUB_OUTPUT"
+
+      - name: Publish API to GitHub Releases
+        id: publish_release
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh --version
+          ASSET_PATH="${{ steps.prepare_asset.outputs.asset_path }}"
+          if [ ! -f "$ASSET_PATH" ]; then
+            echo "Error: Prepared release asset does not exist at $ASSET_PATH"
+            exit 1
+          fi
+
+          RELEASE_TAG="api-build-${{ github.run_number }}-${{ github.run_attempt }}"
+          RELEASE_TITLE="API Build #${{ github.run_number }}"
+
+          NOTES="This is an automatically generated API build.
+          The API was built by GitHub Actions.
+          GitHub Actions run number: ${{ github.run_number }}
+          GitHub Actions run attempt: ${{ github.run_attempt }}
+          Source commit SHA: ${{ github.sha }}
+          API is intended for testing and deployment.
+          API is not a production release.
+          API version and build information: Node.js 20 build"
+
+          echo "Attempting to create GitHub Release: $RELEASE_TAG for repo $GITHUB_REPOSITORY"
+          if RELEASE_OUTPUT=$(gh release create "$RELEASE_TAG" "$ASSET_PATH" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "$RELEASE_TITLE" \
+            --notes "$NOTES" \
+            --latest 2>&1); then
+              echo "Release created successfully: $RELEASE_OUTPUT"
+              echo "release_status=success" >> "$GITHUB_OUTPUT"
+          else
+              echo "::warning::GitHub Release creation returned an error: $RELEASE_OUTPUT"
+              echo "RELEASE_ERR_MSG<<EOF" >> "$GITHUB_ENV"
+              echo "$RELEASE_OUTPUT" >> "$GITHUB_ENV"
+              echo "EOF" >> "$GITHUB_ENV"
+              echo "release_status=failed" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Report API download result
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "${{ steps.publish_release.outputs.release_status }}" = "success" ]; then
+            RELEASE_TAG="api-build-${{ github.run_number }}-${{ github.run_attempt }}"
+            gh release view "$RELEASE_TAG"
+            echo "Release Tag: $RELEASE_TAG"
+            echo "Release Title: API Build #${{ github.run_number }}"
+            echo "Release Asset: api-release.zip"
+            DIRECT_URL="https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/api-release.zip"
+            echo "Direct API URL: $DIRECT_URL"
+            echo "## DIRECT API DOWNLOAD" >> "$GITHUB_STEP_SUMMARY"
+            echo "[$DIRECT_URL]($DIRECT_URL)" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "The Actions artifact named **api-build** remains available as a backup." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning::GitHub Release publishing failed or was skipped."
+            echo "The API build succeeded and the GitHub Actions artifact named api-build remains available."
+            echo "## Build Status" >> "$GITHUB_STEP_SUMMARY"
+            echo "API build succeeded. Artifact **api-build** is available in workflow run artifacts." >> "$GITHUB_STEP_SUMMARY"
+            echo "Release publishing failed." >> "$GITHUB_STEP_SUMMARY"
+            if [ -n "$RELEASE_ERR_MSG" ]; then
+              echo "### Error Details" >> "$GITHUB_STEP_SUMMARY"
+              echo "\`\`\`" >> "$GITHUB_STEP_SUMMARY"
+              echo "$RELEASE_ERR_MSG" >> "$GITHUB_STEP_SUMMARY"
+              echo "\`\`\`" >> "$GITHUB_STEP_SUMMARY"
+            fi
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "👉 **Fix**: Enable write permissions at: https://github.com/${GITHUB_REPOSITORY}/settings/actions (under 'Workflow permissions', select 'Read and write permissions')" >> "$GITHUB_STEP_SUMMARY"
+          fi
