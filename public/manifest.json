@@ -1,0 +1,32 @@
+{
+  "id": "/",
+  "name": "Tips",
+  "short_name": "Tips",
+  "description": "تطبيق مالي سريع وعصري لحساب البقشيش والفروقات وتقسيم الفواتير",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#111A26",
+  "theme_color": "#111A26",
+  "icons": [
+    {
+      "src": "/pwa-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/pwa-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/pwa-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

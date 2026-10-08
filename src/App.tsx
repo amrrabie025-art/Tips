@@ -5,6 +5,7 @@
 
 import React, { useState } from 'react';
 import { Header } from './components/Header.tsx';
+import { InstallPrompt } from './components/InstallPrompt.tsx';
 import { TipsCard } from './components/TipsCard.tsx';
 import { OtherCurrencyCard } from './components/OtherCurrencyCard.tsx';
 import { TheBillCard } from './components/TheBillCard.tsx';
@@ -54,6 +55,9 @@ export default function App() {
       <main className="w-full max-w-[430px] flex flex-col min-h-screen sm:min-h-0 space-y-4">
         {/* Top Header */}
         <Header onReset={handleReset} />
+
+        {/* In-App Mobile PWA Install Banner */}
+        <InstallPrompt />
 
         {/* 1. Tips Card */}
         <TipsCard
